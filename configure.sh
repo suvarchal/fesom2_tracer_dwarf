@@ -8,6 +8,7 @@
 # Options:
 #   --compiler COMPILER   gnu (default), intel, nvidia
 #   --precision PREC      dp (default), sp, hp
+#   --openmp              Enable OpenMP (default: off)
 #   --openacc             Enable OpenACC (default: off)
 #   --build-type TYPE     Release (default) or Debug
 #   --clean               Remove build directory before configuring
@@ -36,6 +37,7 @@ cd "$SCRIPT_DIR"
 COMPILER="gnu"
 PRECISION="dp"
 BUILD_TYPE="Release"
+ENABLE_OPENMP="OFF"
 ENABLE_OPENACC="OFF"
 DO_CLEAN=false
 DO_BUILD=false
@@ -56,6 +58,10 @@ while [[ $# -gt 0 ]]; do
         --build-type)
             BUILD_TYPE="$2"
             shift 2
+            ;;
+        --openmp)
+            ENABLE_OPENMP="ON"
+            shift
             ;;
         --openacc)
             ENABLE_OPENACC="ON"
@@ -183,6 +189,7 @@ echo "========================================="
 echo "  Compiler:    $COMPILER ($FC)"
 echo "  Precision:   $PRECISION"
 echo "  Build type:  $BUILD_TYPE"
+echo "  OpenMP:      $ENABLE_OPENMP"
 echo "  OpenACC:     $ENABLE_OPENACC"
 echo "  Build dir:   $BUILD_DIR"
 echo "========================================="
@@ -208,6 +215,7 @@ cmake .. \
     -DCMAKE_C_COMPILER="$CC" \
     -DUSE_SINGLE_PRECISION="$USE_SINGLE" \
     -DUSE_HALF_PRECISION="$USE_HALF" \
+    -DENABLE_OPENMP="$ENABLE_OPENMP" \
     -DENABLE_OPENACC="$ENABLE_OPENACC" \
     $CMAKE_EXTRA_ARGS
 
@@ -255,8 +263,12 @@ cat > run.sh <<RUNEOF
 # Usage: ./run.sh NP [program-args...]
 #   NP = number of MPI processes
 #
+# Environment:
+#   OMP_NUM_THREADS  Number of OpenMP threads per MPI rank (default: 1)
+#
 # Examples:
 #   ./run.sh 1 20 20 10 --periodic
+#   OMP_NUM_THREADS=4 ./run.sh 1 20 20 10 --periodic
 #   ./run.sh 1 50 50 10 --save-mesh --save-scalars --periodic
 
 set -e
@@ -268,6 +280,8 @@ fi
 
 NP="\$1"
 shift
+
+export OMP_NUM_THREADS="\${OMP_NUM_THREADS:-1}"
 
 SCRIPT_DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" && pwd )"
 cd "\$SCRIPT_DIR"
