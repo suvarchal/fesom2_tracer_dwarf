@@ -95,9 +95,10 @@ subroutine muscl_adv_init(twork, partit, mesh)
     !___________________________________________________________________________
     allocate(twork%nboundary_lay(partit%myDim_nod2D+partit%eDim_nod2D)) !node n becomes a boundary node after layer twork%nboundary_lay(n)
     twork%nboundary_lay=mesh%nl-1
-    ! Edge coloring: process edges by color group for lock-free parallelism
+    ! Edge coloring: process edges by color group inside persistent PARALLEL region
+!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(ic, ie, n, n1, n2)
     do ic=1, partit%edge_coloring%num_colors
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(ie, n, n1, n2)
+!$OMP DO
         do ie=1, partit%edge_coloring%color_edge_count(ic)
             n = partit%edge_coloring%color_edges(ie, ic)
             ! n1 and n2 are local indices
@@ -129,8 +130,9 @@ subroutine muscl_adv_init(twork, partit, mesh)
                 twork%nboundary_lay(mesh%edges(2,n))=min(twork%nboundary_lay(mesh%edges(2,n)), minval(mesh%nlevels(mesh%edge_tri(:,n)))-1)
             end if
         end do
-!$OMP END PARALLEL DO
+!$OMP END DO
     end do
+!$OMP END PARALLEL
 end SUBROUTINE muscl_adv_init
 !
 !

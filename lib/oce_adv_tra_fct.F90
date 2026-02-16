@@ -86,7 +86,7 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 
 #ifndef ENABLE_OPENACC
 !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, nz, k, elem, enodes, num, el, nl1, nl2, nu1, nu2, nl12, nu12, edge, &
-!$OMP                          flux, ae)
+!$OMP                          flux, ae, ic, ie)
     ! --------------------------------------------------------------------------
     ! ttf is the tracer field on step n
     ! del_ttf is the increment
@@ -269,10 +269,9 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 #endif
 
 #ifndef ENABLE_OPENACC
-!$OMP END PARALLEL
-    ! Edge coloring: process edges by color group for lock-free parallelism
+    ! Edge coloring: process edges by color group inside the same PARALLEL region
     do ic=1, partit%edge_coloring%num_colors
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(ie, edge, enodes, el, nl1, nu1, nl2, nu2, nu12, nl12, nz)
+!$OMP DO
         do ie=1, partit%edge_coloring%color_edge_count(ic)
             edge = partit%edge_coloring%color_edges(ie, ic)
             enodes(1:2)=mesh%edges(:,edge)
@@ -297,10 +296,8 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
                 fct_minus(nz,enodes(2))=fct_minus(nz,enodes(2)) + min(0.0_WP,-adf_h(nz,edge))
             end do
         end do
-!$OMP END PARALLEL DO
+!$OMP END DO
     end do
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, nz, k, elem, enodes, num, el, nl1, nl2, nu1, nu2, nl12, nu12, edge, &
-!$OMP                          flux, ae)
 #else
     !Horizontal
 #if !defined(DISABLE_OPENACC_ATOMICS)

@@ -95,25 +95,18 @@ subroutine do_oce_adv_tra(dt, vel, w, wi, we, tr_num, dynamics, tracers, partit,
         call adv_tra_hor_upw1(vel, ttf, partit, mesh, adv_flux_hor, o_init_zero=.true.)
         ! update the LO solution for horizontal contribution
 #ifndef ENABLE_OPENACC
-!$OMP PARALLEL DO
-#else
-        !$ACC PARALLEL LOOP GANG VECTOR COLLAPSE(2) DEFAULT(PRESENT) VECTOR_LENGTH(acc_vl)
-#endif
+        ! Persistent parallel region: zero + edge-coloring scatter
+!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, nz, ic, ie, e, enodes, el, nl1, nu1, nl2, nu2, nu12, nl12)
+!$OMP DO
         do n=1, partit%myDim_nod2D+partit%eDim_nod2D
            do nz=1, mesh%nl - 1
               fct_LO(nz,n) = 0.0_MP
            end do
         end do
-#ifndef ENABLE_OPENACC
-!$OMP END PARALLEL DO
-#else
-        !$ACC END PARALLEL LOOP
-#endif
-
-#ifndef ENABLE_OPENACC
+!$OMP END DO
         ! Edge coloring: process edges by color group for lock-free parallelism
         do ic=1, partit%edge_coloring%num_colors
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(ie, e, enodes, el, nl1, nu1, nl2, nu2, nu12, nl12, nz)
+!$OMP DO
             do ie=1, partit%edge_coloring%color_edge_count(ic)
                 e = partit%edge_coloring%color_edges(ie, ic)
                 enodes=mesh%edges(:,e)
@@ -136,9 +129,20 @@ subroutine do_oce_adv_tra(dt, vel, w, wi, we, tr_num, dynamics, tracers, partit,
                    fct_LO(nz, enodes(2))=fct_LO(nz, enodes(2))-adv_flux_hor(nz, e)
                 end do
             end do
-!$OMP END PARALLEL DO
+!$OMP END DO
         end do
+!$OMP END PARALLEL
 #else
+        !$ACC PARALLEL LOOP GANG VECTOR COLLAPSE(2) DEFAULT(PRESENT) VECTOR_LENGTH(acc_vl)
+        do n=1, partit%myDim_nod2D+partit%eDim_nod2D
+           do nz=1, mesh%nl - 1
+              fct_LO(nz,n) = 0.0_MP
+           end do
+        end do
+        !$ACC END PARALLEL LOOP
+#endif
+
+#ifdef ENABLE_OPENACC
 #if !defined(DISABLE_OPENACC_ATOMICS)
         !$ACC PARALLEL LOOP GANG PRIVATE(enodes, el) DEFAULT(PRESENT) VECTOR_LENGTH(acc_vl)
 #else
@@ -316,7 +320,7 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
     ! c. Update the solution
     ! Vertical
 #ifndef ENABLE_OPENACC
-!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, nz, k, elem, enodes, num, el, nu12, nl12, nu1, nu2, nl1, nl2, edge)
+!$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, nz, k, elem, enodes, num, el, nu12, nl12, nu1, nu2, nl1, nl2, edge, ic, ie)
 #endif
     if (present(use_lo)) then
        if (use_lo) then
@@ -361,12 +365,10 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
 #else
     !$ACC END PARALLEL LOOP
 #endif
-    ! Horizontal
+    ! Horizontal — edge coloring scatter inside the same PARALLEL region
 #ifndef ENABLE_OPENACC
-!$OMP END PARALLEL
-    ! Edge coloring: process edges by color group for lock-free parallelism
     do ic=1, partit%edge_coloring%num_colors
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(ie, edge, enodes, el, nl1, nu1, nl2, nu2, nu12, nl12, nz)
+!$OMP DO
         do ie=1, partit%edge_coloring%color_edge_count(ic)
             edge = partit%edge_coloring%color_edges(ie, ic)
             enodes(1:2)=mesh%edges(:,edge)
@@ -390,8 +392,9 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
                 dttf_h(nz,enodes(2))=dttf_h(nz,enodes(2))-flux_h(nz,edge)*dt/mesh%areasvol(nz,enodes(2))
             end do
         end do
-!$OMP END PARALLEL DO
+!$OMP END DO
     end do
+!$OMP END PARALLEL
 #else
 #if !defined(DISABLE_OPENACC_ATOMICS)
     !$ACC PARALLEL LOOP GANG PRIVATE(enodes, el) DEFAULT(PRESENT) VECTOR_LENGTH(acc_vl)
