@@ -30,6 +30,7 @@ subroutine compute_edge_coloring(coloring, myDim_edge2D, myDim_nod2D, eDim_nod2D
     integer :: max_node_degree
     integer, allocatable :: node_degree(:)
     integer, allocatable :: temp_edges(:)
+    integer :: i, j, nc, key_edge, key_node, cur_node
 
     if (myDim_edge2D == 0) return
 
@@ -106,8 +107,27 @@ subroutine compute_edge_coloring(coloring, myDim_edge2D, myDim_nod2D, eDim_nod2D
     end do
     deallocate(temp_edges)
 
+    ! Sort edges within each color by min node index for cache locality
+    do c = 1, coloring%num_colors
+        nc = coloring%color_edge_count(c)
+        ! Insertion sort by min(node1, node2)
+        do i = 2, nc
+            key_edge = coloring%color_edges(i, c)
+            key_node = min(edges(1, key_edge), edges(2, key_edge))
+            j = i - 1
+            do while (j >= 1)
+                cur_node = min(edges(1, coloring%color_edges(j, c)), &
+                               edges(2, coloring%color_edges(j, c)))
+                if (cur_node <= key_node) exit
+                coloring%color_edges(j + 1, c) = coloring%color_edges(j, c)
+                j = j - 1
+            end do
+            coloring%color_edges(j + 1, c) = key_edge
+        end do
+    end do
+
     write(*, '(A,I4,A,I8,A)') '  Edge coloring: ', coloring%num_colors, &
-        ' colors for ', myDim_edge2D, ' edges'
+        ' colors for ', myDim_edge2D, ' edges (sorted by node locality)'
 
 end subroutine compute_edge_coloring
 
