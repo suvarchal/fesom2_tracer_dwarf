@@ -45,6 +45,7 @@ program tracer_dwarf_analytic
   use g_config
   use o_PARAM
   use fesom_profiler
+  use oce_edge_coloring_module, only: compute_edge_coloring
 #ifdef USE_HALF_PRECISION
   use hp_math_intrinsics
 #endif
@@ -292,6 +293,11 @@ program tracer_dwarf_analytic
 
   if (partit%mype == 0) write(*, '(A)') '  --> Initializing FCT arrays'
   call oce_adv_tra_fct_init(tracers%work, partit, mesh)
+
+  ! Compute edge coloring for lock-free OpenMP edge-to-node scatter
+  if (partit%mype == 0) write(*, '(A)') '  --> Computing edge coloring'
+  call compute_edge_coloring(partit%edge_coloring, partit%myDim_edge2D, &
+                             partit%myDim_nod2D, partit%eDim_nod2D, mesh%edges)
 
   ! ========================================
   ! Set custom tracer values

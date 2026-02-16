@@ -17,6 +17,7 @@ USE par_support_interfaces
 USE restart_derivedtype_module
 USE fortran_utils
 USE oce_adv_tra_driver_module
+USE oce_edge_coloring_module, only: compute_edge_coloring
 IMPLICIT NONE
 
 character(LEN=500)               :: resultpath, npepath, meta
@@ -66,6 +67,10 @@ call read_all_bin_restarts(npepath, partit=partit, mesh=mesh, dynamics=dyn, trac
 ! used to be call set_par_support(partit, mesh)
 call init_mpi_types(partit, mesh)
 call init_gatherLists(partit)
+
+! Compute edge coloring for lock-free OpenMP edge-to-node scatter
+call compute_edge_coloring(partit%edge_coloring, partit%myDim_edge2D, &
+                           partit%myDim_nod2D, partit%eDim_nod2D, mesh%edges)
 
     !$ACC DATA COPY(mesh, partit, tracers, dyn) &
     !$ACC      COPY(mesh%helem, mesh%elem_cos, mesh%edge_cross_dxdy, mesh%elem2d_nodes, mesh%nl) &

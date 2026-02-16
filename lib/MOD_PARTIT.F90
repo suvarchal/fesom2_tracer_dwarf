@@ -5,6 +5,7 @@ USE, intrinsic :: ISO_FORTRAN_ENV, only : int32
 USE MOD_WRITE_BINARY_ARRAYS
 USE MOD_READ_BINARY_ARRAYS
 USE mpi
+USE oce_edge_coloring_module, only: t_edge_coloring
 #if defined(_OPENMP)
     USE OMP_LIB
 #endif
@@ -96,6 +97,9 @@ TYPE T_PARTIT
   !!! plock is constructed during the runtime and shall not be dumped!!!
     integer(omp_lock_kind), allocatable :: plock(:)
 #endif
+
+  !!! edge_coloring is constructed during the runtime and shall not be dumped!!!
+  type(t_edge_coloring) :: edge_coloring
 
   contains
 #if defined(__PGI)

@@ -12,6 +12,7 @@ program tracer_dwarf_mesh_init
   use MOD_PARSUP
   use oce_adv_tra_driver_module
   use tracer_init_from_mesh_module
+  use oce_edge_coloring_module, only: compute_edge_coloring
   use g_config
   use o_PARAM
   
@@ -74,7 +75,12 @@ program tracer_dwarf_mesh_init
   ! Initialize mesh and arrays from mesh files
   ! ========================================
   call tracer_init_mesh_and_arrays(partit, mesh, dynamics, tracers)
-  
+
+  ! Compute edge coloring for lock-free OpenMP edge-to-node scatter
+  if (partit%mype == 0) write(*, '(A)') '  --> Computing edge coloring'
+  call compute_edge_coloring(partit%edge_coloring, partit%myDim_edge2D, &
+                             partit%myDim_nod2D, partit%eDim_nod2D, mesh%edges)
+
   ! ========================================
   ! Set custom tracer values
   ! ========================================

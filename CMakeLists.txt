@@ -213,6 +213,7 @@ set(library_sources_Fortran
     ${lib_home}/gen_halo_exchange.F90
     ${lib_home}/io_restart_derivedtype.F90
     ${lib_home}/oce_mesh.F90
+    ${lib_home}/oce_edge_coloring.F90
     ${lib_home}/oce_muscl_adv.F90
     ${lib_home}/oce_adv_tra_fct.F90
     ${lib_home}/oce_adv_tra_hor.F90
