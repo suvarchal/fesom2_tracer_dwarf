@@ -4,7 +4,8 @@ module oce_adv_tra_fct_module
   USE MOD_PARTIT
   USE MOD_PARSUP
   USE g_comm_auto
-  
+  use oce_node_edge_map_module
+
   implicit none
   
   private
@@ -75,9 +76,9 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
     real(kind=MP), intent(inout)      :: fct_plus (mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
     real(kind=MP), intent(inout)      :: fct_minus(mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
     real(kind=MP), intent(inout)      :: AUX(:,:,:) !a large auxuary array, let us use twork%edge_up_dn_grad(1:4, 1:NL-2, 1:partit%myDim_edge2D) to save space
-    integer                           :: n, nz, k, elem, enodes(3), num, el(2), nl1, nl2, nu1, nu2, nl12, nu12, edge
+    integer                           :: n, nz, k, elem, enodes(3), num, el(2), nl1, nl2, nu1, nu2, nl12, nu12, edge, ie
     real(kind=MP)                     :: flux, ae, tvert_max(mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D), tvert_min(mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
-    real(kind=MP)                     :: flux_eps=1e-16
+    real(kind=MP)                     :: flux_eps=1e-16, flux_contrib
     real(kind=WP)                     :: bignumber=1e3
 !#include "associate_part_def.h"
 !#include "associate_mesh_def.h"
@@ -86,7 +87,7 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 
 #ifndef ENABLE_OPENACC
 !$OMP PARALLEL DEFAULT(SHARED) PRIVATE(n, nz, k, elem, enodes, num, el, nl1, nl2, nu1, nu2, nl12, nu12, edge, &
-!$OMP                          flux, ae)
+!$OMP                          flux, ae, ie, flux_contrib)
     ! --------------------------------------------------------------------------
     ! ttf is the tracer field on step n
     ! del_ttf is the increment
@@ -269,7 +270,32 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 #endif
 
 #ifndef ENABLE_OPENACC
+    !Horizontal
+    ! Vertex-gather: race-free OpenMP parallelization over nodes
 !$OMP DO
+    do n=1, partit%myDim_nod2D
+       do ie=1, node_edge_num(n)
+          edge = node_edge_idx(ie, n)
+          el=mesh%edge_tri(:,edge)
+          nl1=mesh%nlevels(el(1))-1
+          nu1=mesh%ulevels(el(1))
+          nl2=0
+          nu2=0
+          if (el(2)>0) then
+             nl2=mesh%nlevels(el(2))-1
+             nu2=mesh%ulevels(el(2))
+          end if
+          nl12 = max(nl1,nl2)
+          nu12 = nu1
+          if (nu2>0) nu12 = min(nu1,nu2)
+          do nz=nu12, nl12
+             flux_contrib = node_edge_sign(ie, n) * adf_h(nz,edge)
+             fct_plus (nz,n)=fct_plus (nz,n) + max(0.0_WP, flux_contrib)
+             fct_minus(nz,n)=fct_minus(nz,n) + min(0.0_WP, flux_contrib)
+          end do
+       end do
+    end do
+!$OMP END DO
 #else
     !Horizontal
 #if !defined(DISABLE_OPENACC_ATOMICS)
@@ -277,7 +303,6 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 #else
     !$ACC UPDATE SELF(fct_plus, fct_minus, adf_h)
 #endif
-#endif 
     do edge=1, partit%myDim_edge2D
        enodes(1:2)=mesh%edges(:,edge)
        el=mesh%edge_tri(:,edge)
@@ -289,20 +314,11 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
           nl2=mesh%nlevels(el(2))-1
           nu2=mesh%ulevels(el(2))
        end if
-
        nl12 = max(nl1,nl2)
        nu12 = nu1
        if (nu2>0) nu12 = min(nu1,nu2)
-#ifndef ENABLE_OPENACC
-#if defined(_OPENMP)  && !defined(__openmp_reproducible)
-       call omp_set_lock(partit%plock(enodes(1)))
-#else
-!$OMP ORDERED
-#endif
-#else
 #if !defined(DISABLE_OPENACC_ATOMICS)
        !$ACC LOOP VECTOR
-#endif
 #endif
        do nz=nu12, nl12
 #if !defined(DISABLE_OPENACC_ATOMICS)
@@ -313,18 +329,8 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
           !$ACC ATOMIC UPDATE
 #endif
           fct_minus(nz,enodes(1))=fct_minus(nz,enodes(1)) + min(0.0_WP, adf_h(nz,edge))
-
-#ifndef ENABLE_OPENACC
-#if defined(_OPENMP)  && !defined(__openmp_reproducible)
-       end do
-       call omp_unset_lock(partit%plock(enodes(1)))
-       call omp_set_lock  (partit%plock(enodes(2)))
-       do nz=nu12, nl12
-#endif
-#else
 #if !defined(DISABLE_OPENACC_ATOMICS)
           !$ACC ATOMIC UPDATE
-#endif
 #endif
           fct_plus (nz,enodes(2))=fct_plus (nz,enodes(2)) + max(0.0_WP,-adf_h(nz,edge))
 #if !defined(DISABLE_OPENACC_ATOMICS)
@@ -335,18 +341,7 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 #if !defined(DISABLE_OPENACC_ATOMICS)
        !$ACC END LOOP
 #endif
-
-#ifndef ENABLE_OPENACC
-#if defined(_OPENMP)  && !defined(__openmp_reproducible)
-       call omp_unset_lock(partit%plock(enodes(2)))
-#else
-!$OMP END ORDERED
-#endif
-#endif
     end do
-#ifndef ENABLE_OPENACC
-!$OMP END DO
-#else
 #if !defined(DISABLE_OPENACC_ATOMICS)
     !$ACC END PARALLEL LOOP
 #else

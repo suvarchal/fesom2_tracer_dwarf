@@ -16,8 +16,15 @@ option(ENABLE_OPENACC "compile with OpenACC support" ON)
 option(DISABLE_OPENACC_ATOMICS "disable kernels using atomic statement for reproducible results" OFF)
 option(ENABLE_NVTX "enable use of nvtx tools" OFF)
 
+# Option to enable OpenMP support
+option(ENABLE_OPENMP "compile with OpenMP support" OFF)
+
 # Find required packages
 find_package(MPI REQUIRED)
+if(ENABLE_OPENMP)
+    find_package(OpenMP REQUIRED)
+    message(STATUS "OpenMP enabled: ${OpenMP_Fortran_FLAGS}")
+endif()
 
 # Determine library directory - works for both standalone and integrated builds
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
@@ -209,6 +216,7 @@ set(library_sources_Fortran
     ${lib_home}/oce_adv_tra_fct.F90
     ${lib_home}/oce_adv_tra_hor.F90
     ${lib_home}/oce_adv_tra_ver.F90
+    ${lib_home}/oce_node_edge_map.F90
     ${lib_home}/oce_adv_tra_driver.F90
     ${lib_home}/analytic_mesh.F90
     ${lib_home}/mesh_output.F90
@@ -228,6 +236,9 @@ endif()
 add_library(${PROJECT_NAME}_Fortran SHARED ${library_sources_Fortran})
 apply_fesom_compile_flags(${PROJECT_NAME}_Fortran)
 target_link_libraries(${PROJECT_NAME}_Fortran PUBLIC MPI::MPI_Fortran)
+if(ENABLE_OPENMP)
+    target_link_libraries(${PROJECT_NAME}_Fortran PUBLIC OpenMP::OpenMP_Fortran)
+endif()
 set_target_properties(${PROJECT_NAME}_Fortran PROPERTIES LINKER_LANGUAGE Fortran)
 
 # OpenACC linker flags for NVHPC

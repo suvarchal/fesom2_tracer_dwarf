@@ -42,6 +42,7 @@ program tracer_dwarf_analytic
   use oce_adv_tra_fct_module
   use analytic_mesh_module
   use mesh_output_module
+  use oce_node_edge_map_module
   use g_config
   use o_PARAM
   use fesom_profiler
@@ -186,6 +187,9 @@ program tracer_dwarf_analytic
   ! ========================================
   call fesom_profiler_start("mesh_init")
   call generate_analytic_mesh(nx, ny, nl, Lx, Ly, max_depth, partit, mesh, periodic)
+
+  ! Build node-to-edge map for vertex-parallel OpenMP
+  call build_node_edge_map(partit, mesh)
 
   ! ========================================
   ! Optional: save mesh for Python visualization
@@ -404,6 +408,7 @@ program tracer_dwarf_analytic
   do istep = 1, nsteps
     do n = 1, tracers%num_tracers
       ! Zero advection tendencies before each tracer
+!$OMP PARALLEL DO COLLAPSE(2)
       do k = 1, partit%myDim_nod2D + partit%eDim_nod2D
         do nzmin = 1, nz
           tracers%work%del_ttf_advhoriz(nzmin, k) = 0.0_MP
@@ -411,11 +416,13 @@ program tracer_dwarf_analytic
           tracers%work%del_ttf(nzmin, k)          = 0.0_MP
         end do
       end do
+!$OMP END PARALLEL DO
 
       call do_oce_adv_tra(dt_local, dynamics%uv, dynamics%w, dynamics%w, dynamics%w, n, &
                           dynamics, tracers, partit, mesh)
 
       ! Accumulate horizontal + vertical tendencies into del_ttf
+!$OMP PARALLEL DO PRIVATE(nzmax, nzmin, kz)
       do k = 1, partit%myDim_nod2D + partit%eDim_nod2D
         nzmax = mesh%nlevels_nod2D(k) - 1
         nzmin = mesh%ulevels_nod2D(k)
@@ -425,8 +432,10 @@ program tracer_dwarf_analytic
             + tracers%work%del_ttf_advvert(kz, k)
         end do
       end do
+!$OMP END PARALLEL DO
 
       ! Apply tendency to tracer values
+!$OMP PARALLEL DO PRIVATE(nzmax, nzmin, kz)
       do k = 1, partit%myDim_nod2D
         nzmax = mesh%nlevels_nod2D(k) - 1
         nzmin = mesh%ulevels_nod2D(k)
@@ -435,6 +444,7 @@ program tracer_dwarf_analytic
             + tracers%work%del_ttf(kz, k) / mesh%hnode_new(kz, k)
         end do
       end do
+!$OMP END PARALLEL DO
     end do
 
     if (partit%mype == 0) then

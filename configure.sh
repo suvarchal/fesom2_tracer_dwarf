@@ -37,6 +37,7 @@ COMPILER="gnu"
 PRECISION="dp"
 BUILD_TYPE="Release"
 ENABLE_OPENACC="OFF"
+ENABLE_OPENMP="OFF"
 DO_CLEAN=false
 DO_BUILD=false
 
@@ -59,6 +60,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --openacc)
             ENABLE_OPENACC="ON"
+            shift
+            ;;
+        --openmp)
+            ENABLE_OPENMP="ON"
             shift
             ;;
         --clean)
@@ -184,6 +189,7 @@ echo "  Compiler:    $COMPILER ($FC)"
 echo "  Precision:   $PRECISION"
 echo "  Build type:  $BUILD_TYPE"
 echo "  OpenACC:     $ENABLE_OPENACC"
+echo "  OpenMP:      $ENABLE_OPENMP"
 echo "  Build dir:   $BUILD_DIR"
 echo "========================================="
 echo ""
@@ -209,6 +215,7 @@ cmake .. \
     -DUSE_SINGLE_PRECISION="$USE_SINGLE" \
     -DUSE_HALF_PRECISION="$USE_HALF" \
     -DENABLE_OPENACC="$ENABLE_OPENACC" \
+    -DENABLE_OPENMP="$ENABLE_OPENMP" \
     $CMAKE_EXTRA_ARGS
 
 echo ""
