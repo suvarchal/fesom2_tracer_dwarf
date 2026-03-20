@@ -52,6 +52,25 @@ Supported compilers: `gnu`, `intel`, `nvidia`. Precisions: `dp`, `sp`, `hp` (HP 
 - NVIDIA HP: intrinsic math functions lack FP16 overloads → `hp_math_intrinsics.F90` provides wrappers.
 - Halo exchange is compiled out for HP (`#if !defined(USE_HALF_PRECISION)`).
 
+## OpenMP (vertex-parallel)
+
+Build with `--openmp` flag:
+```bash
+./configure.sh --compiler gnu --precision dp --openmp --clean --build
+cd build_gnu_dp && OMP_NUM_THREADS=4 ./run.sh 1 200 200 10 --periodic
+```
+
+**Critical: MPI process binding.** OpenMPI defaults to `--bind-to core`, which pins all
+OpenMP threads to a single core. The generated `run.sh` uses `--bind-to none` to fix this.
+If running `mpirun` directly, always add `--bind-to none` (or `--bind-to socket`).
+
+Edge-to-node scatter uses vertex-gather (each node gathers from incident edges).
+See [VERTEX_PARALLEL.md](docs/VERTEX_PARALLEL.md) for details.
+
+Key files:
+- `lib/oce_node_edge_map.F90` — builds node-to-edge adjacency at init
+- Must call `build_node_edge_map()` after mesh setup in all drivers
+
 ## Compiler-specific notes
 
 - **Intel**: uses `mpiifx`/`mpiicx`; source `setvars.sh` before building.
