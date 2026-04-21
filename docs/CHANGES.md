@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-04-21 — Pre-packed node-edge geometry (memory-bandwidth optimization)
+
+### Motivation
+Vertex-parallel OpenMP scaling saturated at ~2.5-3x on 500x500x3 regardless of
+thread count. Benchmarks showed the kernel was memory-bandwidth-bound: the
+vertex-gather loops chased `node_edge_idx → edge → mesh%edge_tri → nlevels`
+through three levels of indirection per edge, hitting random cache lines.
+
+### Changes
+- `lib/oce_node_edge_map.F90`: added pre-packed arrays (`node_edge_dxdy`,
+  `node_edge_elems`, `node_edge_enodes`, `node_edge_nl1/nu1/nl2/nu2`) and
+  `build_node_edge_packed()` subroutine that copies static mesh geometry into
+  node-contiguous layout at init time.
+- `lib/oce_adv_tra_driver.F90`: converted three vertex-gather loops (FCT LO
+  scatter, flux-to-tracer scatter, fused UPW1 kernel) to read pre-packed
+  arrays instead of chasing `node_edge_idx → mesh%*(:, edge)`.
+- `lib/oce_adv_tra_fct.F90`: converted FCT antidiffusive split loop.
+- `src/fesom_analytic.F90`: call `build_node_edge_packed()` after
+  `build_node_edge_map()`.
+
+### Results (GNU gfortran `-O3`, 500x500x3, single MPI rank)
+
+| Threads | Before (s) | After (s) | Absolute speedup |
+|---------|-----------|-----------|------------------|
+| 1       | 15.48     | 0.69      | 22.4x            |
+| 4       |  6.42     | 0.30      | 21.3x            |
+| 16      |  5.67     | 0.30      | 19.0x            |
+
+The advection loop becomes ~20x faster in absolute terms. See
+[PERFORMANCE.md](PERFORMANCE.md#pre-packed-node-edge-geometry-2026-04).
+
+### Verification
+- GNU DP: sum conserved at `0.3249000000E+05`, 0 NaN at every step, both
+  with 1 and 4 threads.
+
+---
+
 ## 2026-02-14 — Repository restructuring and dead code removal
 
 ### Directory renames

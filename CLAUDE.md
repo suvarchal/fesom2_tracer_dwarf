@@ -68,8 +68,12 @@ Edge-to-node scatter uses vertex-gather (each node gathers from incident edges).
 See [VERTEX_PARALLEL.md](docs/VERTEX_PARALLEL.md) for details.
 
 Key files:
-- `lib/oce_node_edge_map.F90` — builds node-to-edge adjacency at init
-- Must call `build_node_edge_map()` after mesh setup in all drivers
+- `lib/oce_node_edge_map.F90` — builds node-to-edge adjacency at init; also
+  pre-packs static edge geometry into node-contiguous arrays for
+  memory-bandwidth optimization
+- Must call `build_node_edge_map()` and `build_node_edge_packed()` after mesh
+  setup in all drivers (pre-packed arrays eliminate ~3 levels of indirect
+  indexing in the vertex-gather hot loops)
 
 ## Compiler-specific notes
 

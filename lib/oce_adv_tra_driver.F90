@@ -113,18 +113,14 @@ subroutine do_oce_adv_tra(dt, vel, w, wi, we, tr_num, dynamics, tracers, partit,
 
 #ifndef ENABLE_OPENACC
         ! Vertex-gather: race-free OpenMP parallelization over nodes
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(n, e, el, nl1, nu1, nl2, nu2, nu12, nl12, nz)
+        ! Uses pre-packed level bounds; node_edge_idx still needed for dynamic flux array
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(n, e, nl1, nu1, nl2, nu2, nu12, nl12, nz)
         do n=1, partit%myDim_nod2D
             do e=1, node_edge_num(n)
-                el=mesh%edge_tri(:, node_edge_idx(e, n))
-                nl1=mesh%nlevels(el(1))-1
-                nu1=mesh%ulevels(el(1))
-                nl2=0
-                nu2=0
-                if(el(2)>0) then
-                    nl2=mesh%nlevels(el(2))-1
-                    nu2=mesh%ulevels(el(2))
-                end if
+                nl1=node_edge_nl1(e, n)
+                nu1=node_edge_nu1(e, n)
+                nl2=node_edge_nl2(e, n)
+                nu2=node_edge_nu2(e, n)
                 nl12 = max(nl1,nl2)
                 nu12 = nu1
                 if (nu2>0) nu12 = min(nu1,nu2)
@@ -370,18 +366,14 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
     ! Horizontal
 #ifndef ENABLE_OPENACC
     ! Vertex-gather: race-free OpenMP parallelization over nodes
+    ! Uses pre-packed level bounds; node_edge_idx still needed for dynamic flux array
 !$OMP DO
     do n=1, partit%myDim_nod2D
         do edge=1, node_edge_num(n)
-            el=mesh%edge_tri(:, node_edge_idx(edge, n))
-            nl1=mesh%nlevels(el(1))-1
-            nu1=mesh%ulevels(el(1))
-            nl2=0
-            nu2=0
-            if(el(2)>0) then
-                nl2=mesh%nlevels(el(2))-1
-                nu2=mesh%ulevels(el(2))
-            end if
+            nl1=node_edge_nl1(edge, n)
+            nu1=node_edge_nu1(edge, n)
+            nl2=node_edge_nl2(edge, n)
+            nu2=node_edge_nu2(edge, n)
             nl12 = max(nl1,nl2)
             nu12 = nu1
             if (nu2>0) nu12 = min(nu1,nu2)
@@ -464,12 +456,12 @@ subroutine adv_tra_upw1_vertex_fused(vel, ttf, dt, dttf_h, dttf_v, flux_v, parti
     real(kind=MP), intent(inout)         :: dttf_v(mesh%nl-1, partit%myDim_nod2D+partit%eDim_nod2D)
     real(kind=MP), intent(in)            :: flux_v(mesh%nl,   partit%myDim_nod2D)
 
-    integer       :: n, nz, ie, edge, enodes(2), el(2), sgn
+    integer       :: n, nz, ie, enodes(2), el(2), sgn
     integer       :: nl1, nl2, nu1, nu2, nl12, nu12
     real(kind=MP) :: deltaX1, deltaY1, deltaX2, deltaY2
     real(kind=MP) :: vflux, flux_val
 
-!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(n, nz, ie, edge, enodes, el, sgn, &
+!$OMP PARALLEL DO DEFAULT(SHARED) PRIVATE(n, nz, ie, enodes, el, sgn, &
 !$OMP              nl1, nl2, nu1, nu2, nl12, nu12, deltaX1, deltaY1, deltaX2, deltaY2, vflux, flux_val)
     do n = 1, partit%myDim_nod2D
         ! --- Vertical scatter (from pre-computed vertical flux) ---
@@ -480,30 +472,24 @@ subroutine adv_tra_upw1_vertex_fused(vel, ttf, dt, dttf_h, dttf_v, flux_v, parti
         end do
 
         ! --- Fused horizontal: compute edge flux on-the-fly + accumulate ---
+        ! Uses pre-packed node-contiguous arrays (no indirect indexing)
         do ie = 1, node_edge_num(n)
-            edge = node_edge_idx(ie, n)
-            sgn  = node_edge_sign(ie, n)
-            enodes = mesh%edges(:, edge)
-            el = mesh%edge_tri(:, edge)
+            sgn    = node_edge_sign(ie, n)
+            enodes = node_edge_enodes(:, ie, n)
+            el     = node_edge_elems(:, ie, n)
 
-            ! Geometry from element 1
-            deltaX1 = mesh%edge_cross_dxdy(1, edge)
-            deltaY1 = mesh%edge_cross_dxdy(2, edge)
+            ! Geometry from pre-packed arrays
+            deltaX1 = node_edge_dxdy(1, ie, n)
+            deltaY1 = node_edge_dxdy(2, ie, n)
 
-            nl1 = mesh%nlevels(el(1)) - 1
-            nu1 = mesh%ulevels(el(1))
+            nl1 = node_edge_nl1(ie, n)
+            nu1 = node_edge_nu1(ie, n)
 
-            ! Geometry from element 2 (if not boundary)
-            nl2 = 0
-            nu2 = 0
-            deltaX2 = 0.0_MP
-            deltaY2 = 0.0_MP
-            if (el(2) > 0) then
-                deltaX2 = mesh%edge_cross_dxdy(3, edge)
-                deltaY2 = mesh%edge_cross_dxdy(4, edge)
-                nl2 = mesh%nlevels(el(2)) - 1
-                nu2 = mesh%ulevels(el(2))
-            end if
+            ! Element 2 (boundary edges have el(2)==0, nl2/nu2==0)
+            nl2 = node_edge_nl2(ie, n)
+            nu2 = node_edge_nu2(ie, n)
+            deltaX2 = node_edge_dxdy(3, ie, n)
+            deltaY2 = node_edge_dxdy(4, ie, n)
 
             nl12 = min(nl1, nl2)
             nu12 = max(nu1, nu2)

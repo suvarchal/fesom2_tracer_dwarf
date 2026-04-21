@@ -272,19 +272,15 @@ subroutine oce_tra_adv_fct(dt, ttf, lo, adf_h, adf_v, fct_ttf_min, fct_ttf_max, 
 #ifndef ENABLE_OPENACC
     !Horizontal
     ! Vertex-gather: race-free OpenMP parallelization over nodes
+    ! Uses pre-packed level bounds; node_edge_idx still needed for dynamic adf_h
 !$OMP DO
     do n=1, partit%myDim_nod2D
        do ie=1, node_edge_num(n)
           edge = node_edge_idx(ie, n)
-          el=mesh%edge_tri(:,edge)
-          nl1=mesh%nlevels(el(1))-1
-          nu1=mesh%ulevels(el(1))
-          nl2=0
-          nu2=0
-          if (el(2)>0) then
-             nl2=mesh%nlevels(el(2))-1
-             nu2=mesh%ulevels(el(2))
-          end if
+          nl1=node_edge_nl1(ie, n)
+          nu1=node_edge_nu1(ie, n)
+          nl2=node_edge_nl2(ie, n)
+          nu2=node_edge_nu2(ie, n)
           nl12 = max(nl1,nl2)
           nu12 = nu1
           if (nu2>0) nu12 = min(nu1,nu2)

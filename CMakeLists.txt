@@ -106,15 +106,16 @@ function(apply_fesom_compile_flags target_name)
         endif()
         if(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
             # ifx flags (LLVM-based): no -ip, -no-prec-sqrt, -fimf-use-svml
+            # Release: -O3 to match GNU's explicit optimization level
             target_compile_options(${target_name} PRIVATE
                 $<$<CONFIG:DEBUG>:${_intel_real_flag} -i4 -fp-model precise -no-prec-div -xHost -g -traceback -check all,noarg_temp_created,bounds,uninit>
-                $<$<CONFIG:RELEASE>:${_intel_real_flag} -i4 -fp-model precise -no-prec-div -g -traceback>
+                $<$<CONFIG:RELEASE>:${_intel_real_flag} -i4 -O3 -fp-model precise -no-prec-div -g -traceback>
             )
         else()
-            # ifort flags (classic)
+            # ifort flags (classic) — Release: -O3 to match GNU
             target_compile_options(${target_name} PRIVATE
                 $<$<CONFIG:DEBUG>:${_intel_real_flag} -i4 -fp-model precise -no-prec-div -no-prec-sqrt -fimf-use-svml -xHost -ip -g -traceback -check all,noarg_temp_created,bounds,uninit>
-                $<$<CONFIG:RELEASE>:${_intel_real_flag} -i4 -fp-model precise -no-prec-div -no-prec-sqrt -fimf-use-svml -ip -g -traceback>
+                $<$<CONFIG:RELEASE>:${_intel_real_flag} -i4 -O3 -fp-model precise -no-prec-div -no-prec-sqrt -fimf-use-svml -ip -g -traceback>
             )
         endif()
         if(DEFINED ENV{FESOM_PLATFORM_STRATEGY})

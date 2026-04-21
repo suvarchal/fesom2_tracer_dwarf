@@ -190,6 +190,7 @@ program tracer_dwarf_analytic
 
   ! Build node-to-edge map for vertex-parallel OpenMP
   call build_node_edge_map(partit, mesh)
+  call build_node_edge_packed(partit, mesh)
 
   ! ========================================
   ! Optional: save mesh for Python visualization
