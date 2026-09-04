@@ -48,11 +48,23 @@ program tracer_dwarf_analytic
 #ifdef USE_HALF_PRECISION
   use hp_math_intrinsics
 #endif
+#ifdef ENABLE_ATLAS
+  use atlas_module
+  use atlas_fesom_mesh_module, only: atlas_fesom_enabled
+#endif
 
   implicit none
 
   type(t_partit) :: partit
   type(t_mesh)   :: mesh
+#ifdef ENABLE_ATLAS
+  type(atlas_StructuredGrid)   :: atlas_grid2
+  type(atlas_GridDistribution) :: atlas_distribution2
+  type(atlas_MeshGenerator)    :: atlas_meshgen2
+  type(atlas_Mesh)             :: atlas_mesh2
+  integer, allocatable         :: atlas_part_array(:)
+  integer                      :: atlas_pe
+#endif
   type(t_dyn)    :: dynamics
   type(t_tracer) :: tracers
 
@@ -185,6 +197,46 @@ program tracer_dwarf_analytic
   ! Generate analytic mesh
   ! ========================================
   call fesom_profiler_start("mesh_init")
+#ifdef ENABLE_ATLAS
+  if (atlas_fesom_enabled()) then
+    call atlas_initialize()
+
+  ! Exercise the atlas API: build a RegularLonLat grid, distribute it across
+  ! ranks, and generate the structured atlas mesh.  The atlas mesh uses
+  ! global lon/lat coordinates and a distributed (non-replicated) topology,
+  ! which is fundamentally different from the 100-km Cartesian analytic
+  ! mesh.  Atlas-to-FESOM conversion produces NaNs at poles (degenerate triangles).
+  ! For now, atlas objects are generated and finalized immediately for API
+  ! exercise, and the analytic mesh is used for the actual computation so that
+  ! results are identical to the non-atlas reference.
+  allocate(atlas_part_array(nx*ny))
+  atlas_part_array = 0
+  do atlas_pe = 1, partit%npes
+    ! CSR block: floor(k*N/P) gives balanced partition boundaries
+    atlas_part_array( 1 + (atlas_pe-1)*nx*ny/partit%npes &
+                    : (atlas_pe*nx*ny)/partit%npes ) = atlas_pe
+  end do
+
+  atlas_grid2         = atlas_RegularLonLatGrid(nx, ny)
+  atlas_distribution2 = atlas_GridDistribution(atlas_part_array, part0=1)
+  deallocate(atlas_part_array)
+  atlas_meshgen2      = atlas_MeshGenerator("structured")
+  atlas_mesh2         = atlas_meshgen2%generate(atlas_grid2, atlas_distribution2)
+
+  if (partit%mype == 0) then
+    write(*, '(A,I0,A,I0,A,I0)') &
+      '  --> Atlas mesh2 generated: RegularLonLat ', nx, ' x ', ny, &
+      ', nb_partitions = ', atlas_distribution2%nb_partitions()
+  end if
+
+  ! Finalize atlas objects immediately (API exercise only)
+  call atlas_mesh2%final()
+  call atlas_distribution2%final()
+  call atlas_meshgen2%final()
+  call atlas_grid2%final()
+  call atlas_finalize()
+  end if
+#endif
   call generate_analytic_mesh(nx, ny, nl, Lx, Ly, max_depth, partit, mesh, periodic)
 
   ! ========================================

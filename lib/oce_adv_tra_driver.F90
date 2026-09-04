@@ -8,6 +8,7 @@ module oce_adv_tra_driver_module
     use oce_adv_tra_hor_interfaces
     use oce_adv_tra_ver_interfaces
     use oce_adv_tra_fct_module, only: oce_tra_adv_fct
+    use atlas_fesom_mesh_module, only: atlas_fesom_active, atlas_halo_exchange_nodal
     use fesom_profiler
 
     implicit none
@@ -205,7 +206,7 @@ subroutine do_oce_adv_tra(dt, vel, w, wi, we, tr_num, dynamics, tracers, partit,
             !!PS do  nz=1, nlevels_nod2D(n)-1
             !$ACC LOOP VECTOR
             do  nz= nu1, nl1-1
-                fct_LO(nz,n)=(ttf(nz,n)*mesh%hnode(nz,n)+(fct_LO(nz,n)+(adv_flux_ver(nz, n)-adv_flux_ver(nz+1, n)))*dt/mesh%areasvol(nz,n))/mesh%hnode_new(nz,n)
+                fct_LO(nz,n)=(ttf(nz,n)*mesh%hnode(nz,n)+(fct_LO(nz,n)+(adv_flux_ver(nz,n)-adv_flux_ver(nz+1,n)))*dt/mesh%areasvol(nz,n))/mesh%hnode_new(nz,n)
             end do
             !$ACC END LOOP
         end do
@@ -231,7 +232,15 @@ subroutine do_oce_adv_tra(dt, vel, w, wi, we, tr_num, dynamics, tracers, partit,
             call adv_tra_ver_upw1(w, ttf, partit, mesh, adv_flux_ver, o_init_zero=.true.)
         end if
 #if !defined(USE_HALF_PRECISION)
+#ifdef ENABLE_ATLAS
+    if (atlas_fesom_active()) then
+        call atlas_halo_exchange_nodal(fct_LO)
+    else
         call exchange_nod(fct_LO, partit, luse_g2g = .true.)
+    end if
+#else
+        call exchange_nod(fct_LO, partit, luse_g2g = .true.)
+#endif
 #endif
 !$OMP BARRIER
     end if !--> if (trim(tracers%data(tr_num)%tra_adv_lim)=='FCT') then
@@ -357,7 +366,8 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
         nl1 = mesh%nlevels_nod2D(n)
         !$ACC LOOP VECTOR
         do nz=nu1,nl1-1
-            dttf_v(nz,n)=dttf_v(nz,n) + (flux_v(nz,n)-flux_v(nz+1,n))*dt/mesh%areasvol(nz,n)
+            dttf_v(nz,n)=dttf_v(nz,n) + (flux_v(nz,n)-flux_v(nz+1,n)) &
+                *dt/mesh%areasvol(nz,n)
         end do
         !$ACC END LOOP
     end do
@@ -408,7 +418,8 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
 #if !defined(DISABLE_OPENACC_ATOMICS)
             !$ACC ATOMIC UPDATE
 #endif
-            dttf_h(nz,enodes(1))=dttf_h(nz,enodes(1))+flux_h(nz,edge)*dt/mesh%areasvol(nz,enodes(1))
+            dttf_h(nz,enodes(1))=dttf_h(nz,enodes(1))+flux_h(nz,edge) &
+                *dt/mesh%areasvol(nz,enodes(1))
 #ifndef ENABLE_OPENACC
 #if defined(_OPENMP)  && !defined(__openmp_reproducible)
         end do
@@ -421,7 +432,8 @@ subroutine oce_tra_adv_flux2dtracer(dt, dttf_h, dttf_v, flux_h, flux_v, partit, 
             !$ACC ATOMIC UPDATE
 #endif
 #endif
-            dttf_h(nz,enodes(2))=dttf_h(nz,enodes(2))-flux_h(nz,edge)*dt/mesh%areasvol(nz,enodes(2))
+            dttf_h(nz,enodes(2))=dttf_h(nz,enodes(2))-flux_h(nz,edge) &
+                *dt/mesh%areasvol(nz,enodes(2))
         end do
 #ifndef ENABLE_OPENACC
 #if defined(_OPENMP)  && !defined(__openmp_reproducible)

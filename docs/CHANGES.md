@@ -1,3 +1,39 @@
+# Unreleased
+
+## Added
+
+- `ATLAS_GRID` selects the Atlas grid at runtime and defaults to `fesom-pi`.
+- Atlas-enabled builds now use the Atlas runtime path only when
+	`ATLAS_FESOM=1`; an unset or zero value uses the standard FESOM path.
+- Optional Atlas-backed mesh setup path controlled by `ENABLE_ATLAS_MESH`.
+- New mesh wrapper module `lib/atlas_fesom_mesh.F90` and integration into:
+	- `lib/tracer_init_from_mesh.F90`
+	- `lib/tracer_c_interface.F90`
+
+## New features
+
+- Structured Atlas grids such as `O64` now use Atlas-native coordinates and
+	triangulated connectivity. Ghost/PATCH cells and their edges are excluded,
+	and the retained edges follow FESOM's internal/boundary ordering.
+- Atlas mesh conversion now uses `atlas_build_edges` and copies Atlas
+	edge-to-node and edge-to-cell connectivity directly into the FESOM mesh.
+	Atlas-local edge ordering and orientation are preserved.
+- `ATLAS_USE_FESOM_DIST=1` now constructs the Atlas distribution from owned
+	nodes in `my_list*.out` instead of incorrectly treating `rpart.out` counts as
+	contiguous global-node ranges. Both Atlas distribution modes produce stable
+	statistics across MPI rank counts.
+- Atlas tracer sums use `order_independent_sum`, removing partition-order
+	differences from diagnostic reductions.
+- Atlas and file-based runs may differ at the last printed digits because their
+	edge traversal orders differ, while remaining numerically equivalent.
+- The min/max/sum diagnostics are now independent of rank count.
+- Atlas mesh initialization now reads the complete vertical profile from
+	`aux3d.out`, matching the file-based mesh's tracer layer count and sums.
+
+## Build
+
+- CMake now supports `-DENABLE_ATLAS=ON` and links `atlas_f` when enabled.
+
 # Changelog
 
 ## 2026-02-14 — Repository restructuring and dead code removal

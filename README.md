@@ -14,6 +14,35 @@ cd build_gnu_dp
 
 This generates a 20x20 doubly-periodic triangular mesh with 10 vertical levels and runs 10 advection steps on a single MPI rank.
 
+Build the Atlas dependencies, then configure the dwarf with Atlas enabled:
+
+```bash
+./configure.sh --compiler gnu --precision dp --clean --build --atlas
+```
+
+CMake delegates to Atlas's `tools/install.sh` with all dependencies, Fortran,
+LZ4, and atlas-fesom enabled. The atlas-fesom dependency path also installs
+METIS. If the Atlas source is absent, CMake clones it into `atlas_deps/atlas`.
+With `--atlas`, `configure.sh` enables atlas-fesom caching in the generated run
+wrapper, allowing automatic download of requested FESOM grids.
+The resulting binaries use the standard non-Atlas path by default.
+Set `ATLAS_FESOM=1` at runtime to use Atlas:
+
+```bash
+cd build_gnu_dp_atlas
+ATLAS_FESOM=1 ATLAS_GRID=fesom-pi ATLAS_USE_FESOM_DIST=0 mpirun -np 8 ./bin/fesom_tracer_mesh_init
+```
+
+`ATLAS_GRID` selects the Atlas grid and defaults to `fesom-pi` when unset or
+empty.
+`ATLAS_USE_FESOM_DIST=1` reads in the original FESOM paritioning from a file and applies it to Atlas generated grid, if `ATLAS_FESOM=1` is used.
+
+The mesh-file driver also accepts Atlas structured grids on one MPI rank:
+
+```bash
+ATLAS_FESOM=1 ATLAS_GRID=O64 ./bin/fesom_tracer_mesh_init
+```
+
 ## Running
 
 ### Analytic Dwarf (recommended for testing)
@@ -55,7 +84,9 @@ Step    2: T min, max, sum =   0.322013E-01  0.199642E+02  0.3249000000E+05  NaN
 
 ### Mesh-Init Dwarf
 
-Reads mesh partition files (not restart files) and sets custom tracer values before advection. Requires pre-partitioned mesh files.
+Reads global mesh files (not restart files) and sets custom tracer values before
+advection. A single-rank run derives identity ownership from the global mesh;
+multi-rank runs require matching `dist_N/` partition files.
 
 ```bash
 mpirun -np 1 ./bin/fesom_tracer_mesh_init
@@ -105,6 +136,88 @@ Examples:
 
 # NVIDIA half precision (experimental, requires nvfortran)
 ./configure.sh --compiler nvidia --precision hp --clean --build
+```
+
+### Standalone Atlas with atlas-fesom
+
+Run the following commands from the repository root before configuring the
+dwarf with `--atlas`. They build Atlas, its dependencies, the Fortran interface,
+LZ4 support, and the atlas-fesom plugin into a self-contained local prefix.
+
+```bash
+# Clone Atlas once. Change "develop" to a release tag if required.
+mkdir -p atlas_deps
+git clone --depth 1 --branch develop \
+  https://github.com/ecmwf/atlas.git atlas_deps/atlas
+
+ATLAS_SOURCE="$PWD/atlas_deps/atlas"
+ATLAS_PREFIX="$PWD/atlas_install_gnu"
+ATLAS_WORK_DIR="$PWD/atlas_builds_gnu"
+ATLAS_JOBS="$(getconf _NPROCESSORS_ONLN)"
+
+env \
+  -u ecbuild_DIR -u eckit_DIR -u fckit_DIR -u atlas_DIR \
+  -u ecbuild_ROOT -u eckit_ROOT -u fckit_ROOT -u atlas_ROOT \
+  bash "$ATLAS_SOURCE/tools/install.sh" \
+  --with-deps \
+  --enable-fortran \
+  --enable-lz4 \
+  --with-atlas-fesom \
+  --prefix "$ATLAS_PREFIX" \
+  --work-dir "$ATLAS_WORK_DIR" \
+  --build-type Release \
+  --parallel "$ATLAS_JOBS" \
+  --cmake "-DCMAKE_C_COMPILER=$(command -v gcc) \
+-DCMAKE_CXX_COMPILER=$(command -v g++) \
+-DCMAKE_Fortran_COMPILER=$(command -v gfortran) \
+-DENABLE_MPI=ON -DENABLE_OMP=OFF"
+```
+
+`install.sh` configures, builds, and installs the complete dependency stack, so
+no separate build command is needed. Build trees are written to
+`atlas_builds_gnu`, while installed headers, libraries, tools, and CMake package
+files are written to `atlas_install_gnu`.
+
+Verify that both packages were installed:
+
+```bash
+test -f "$ATLAS_PREFIX/lib/cmake/atlas/atlas-config.cmake"
+test -f "$ATLAS_PREFIX/lib/cmake/atlas-fesom/atlas-fesom-config.cmake"
+"$ATLAS_PREFIX/bin/atlas" --version
+```
+
+For Intel use `icx`, `icpx`, and `ifx`, with `atlas_install_intel` and
+`atlas_builds_intel`. For NVIDIA use `nvc`, `nvc++`, and `nvfortran`, with
+`atlas_install_nvidia` and `atlas_builds_nvidia`. The selected C, C++, and
+Fortran compilers must use a compatible MPI installation.
+
+To rebuild the standalone dependency stack from scratch, remove its install and
+work directories and rerun the installer command:
+
+```bash
+rm -rf "$ATLAS_PREFIX" "$ATLAS_WORK_DIR"
+```
+
+Downstream CMake projects can discover this standalone installation with:
+
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$ATLAS_PREFIX"
+```
+
+After installation, configure and build the dwarf with Atlas support:
+
+```bash
+./configure.sh --compiler gnu --precision dp --atlas --clean --build
+```
+
+`--atlas` selects `atlas_install_<compiler>` automatically. For an installation
+in another location, configure directly and set its prefix explicitly:
+
+```bash
+cmake -S . -B build_gnu_dp_atlas \
+  -DENABLE_ATLAS=ON \
+  -DATLAS_INSTALL_PREFIX=/path/to/atlas/install
+cmake --build build_gnu_dp_atlas --parallel
 ```
 
 ### Visualization

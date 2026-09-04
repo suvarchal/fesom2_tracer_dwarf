@@ -12,6 +12,10 @@ the dependency on pre-partitioned mesh files.
 
 ## Current Data Flow
 
+For `npes=1`, `read_mesh()` derives identity node, element, and edge ownership
+from the global mesh headers and initializes empty halo communication lists.
+For `npes>1`, it reads the pre-partitioned metadata from `dist_N/`.
+
 ```
 Pre-partitioned files (dist_N/)         Global mesh files
   rpart.out                               nod2d.out

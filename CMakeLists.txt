@@ -5,6 +5,7 @@ include(fesom_setup)
 
 # Option to enable C interface for Python binding
 option(ENABLE_TRACER_C_INTERFACE "Build C interface for tracer library" OFF)
+option(ENABLE_ATLAS "Build with the Atlas backend" OFF)
 
 # Precision options (mutually exclusive)
 option(USE_HALF_PRECISION "Build with half precision (WP=2, FP16)" OFF)
@@ -19,11 +20,47 @@ option(ENABLE_NVTX "enable use of nvtx tools" OFF)
 # Find required packages
 find_package(MPI REQUIRED)
 
+set(ATLAS_RUNTIME_LIBDIR "")
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set(_atlas_compiler_variant gnu)
+elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
+    set(_atlas_compiler_variant intel)
+elseif(CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC|PGI")
+    set(_atlas_compiler_variant nvidia)
+else()
+    message(FATAL_ERROR "Atlas is not configured for Fortran compiler ${CMAKE_Fortran_COMPILER_ID}")
+endif()
+
+set(ATLAS_INSTALL_PREFIX
+    "${CMAKE_SOURCE_DIR}/atlas_install_${_atlas_compiler_variant}"
+    CACHE PATH "Prefix of the standalone Atlas installation")
+set(atlas_DIR "${ATLAS_INSTALL_PREFIX}/lib/cmake/atlas")
+set(atlas-fesom_DIR "${ATLAS_INSTALL_PREFIX}/lib/cmake/atlas-fesom")
+
+if(NOT EXISTS "${atlas_DIR}/atlas-config.cmake" OR
+    NOT EXISTS "${atlas-fesom_DIR}/atlas-fesom-config.cmake")
+    message(FATAL_ERROR
+        "Atlas with atlas-fesom was not found under ${ATLAS_INSTALL_PREFIX}. "
+        "Follow 'Standalone Atlas with atlas-fesom' in README.md, or set "
+        "-DATLAS_INSTALL_PREFIX=<install-prefix>.")
+endif()
+
+list(PREPEND CMAKE_PREFIX_PATH "${ATLAS_INSTALL_PREFIX}")
+find_package(atlas REQUIRED CONFIG PATHS "${atlas_DIR}" NO_DEFAULT_PATH)
+find_package(atlas-fesom REQUIRED CONFIG PATHS "${atlas-fesom_DIR}" NO_DEFAULT_PATH)
+
+get_filename_component(ATLAS_RUNTIME_LIBDIR
+    "${ATLAS_INSTALL_PREFIX}/lib" REALPATH)
+message(STATUS "Atlas backend enabled: ${ATLAS_INSTALL_PREFIX}")
+message(STATUS "Atlas runtime lib dir: ${ATLAS_RUNTIME_LIBDIR}")
+
 # Determine library directory - works for both standalone and integrated builds
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     # This is a standalone build
     set(lib_home ${CMAKE_CURRENT_SOURCE_DIR}/lib)
     message(STATUS "Building as standalone tracer dwarf")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+         DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/tests")
 
     # Set default install prefix if not specified
     if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -211,6 +248,7 @@ set(library_sources_Fortran
     ${lib_home}/oce_adv_tra_ver.F90
     ${lib_home}/oce_adv_tra_driver.F90
     ${lib_home}/analytic_mesh.F90
+    ${lib_home}/atlas_fesom_mesh.F90
     ${lib_home}/mesh_output.F90
     ${lib_home}/tracer_init_from_mesh.F90
     ${lib_home}/fesom_profiler.F90
@@ -228,6 +266,16 @@ endif()
 add_library(${PROJECT_NAME}_Fortran SHARED ${library_sources_Fortran})
 apply_fesom_compile_flags(${PROJECT_NAME}_Fortran)
 target_link_libraries(${PROJECT_NAME}_Fortran PUBLIC MPI::MPI_Fortran)
+if(ENABLE_ATLAS)
+    target_compile_definitions(${PROJECT_NAME}_Fortran PRIVATE ENABLE_ATLAS)
+    target_link_libraries(${PROJECT_NAME}_Fortran PUBLIC atlas_f)
+
+    # Link atlas-fesom plugin if found
+    if(TARGET atlas-fesom)
+        target_link_libraries(${PROJECT_NAME}_Fortran PUBLIC atlas-fesom)
+        target_compile_definitions(${PROJECT_NAME}_Fortran PRIVATE ENABLE_ATLAS_FESOM)
+    endif()
+endif()
 set_target_properties(${PROJECT_NAME}_Fortran PROPERTIES LINKER_LANGUAGE Fortran)
 
 # OpenACC linker flags for NVHPC
@@ -248,6 +296,13 @@ add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/fesom.F90)
 apply_fesom_compile_flags(${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_NAME}_Fortran)
 set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE Fortran)
+if(ENABLE_ATLAS AND ATLAS_RUNTIME_LIBDIR)
+    set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY BUILD_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+    set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY INSTALL_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+endif()
+if(ENABLE_ATLAS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_ATLAS)
+endif()
 
 # ========================================
 # Mesh-init executable
@@ -257,6 +312,13 @@ add_executable(${mesh_init_executable} ${CMAKE_CURRENT_SOURCE_DIR}/src/fesom_mes
 apply_fesom_compile_flags(${mesh_init_executable})
 target_link_libraries(${mesh_init_executable} PUBLIC ${PROJECT_NAME}_Fortran)
 set_target_properties(${mesh_init_executable} PROPERTIES LINKER_LANGUAGE Fortran)
+if(ENABLE_ATLAS AND ATLAS_RUNTIME_LIBDIR)
+    set_property(TARGET ${mesh_init_executable} APPEND PROPERTY BUILD_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+    set_property(TARGET ${mesh_init_executable} APPEND PROPERTY INSTALL_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+endif()
+if(ENABLE_ATLAS)
+    target_compile_definitions(${mesh_init_executable} PRIVATE ENABLE_ATLAS)
+endif()
 
 # ========================================
 # Analytic mesh executable
@@ -266,6 +328,32 @@ add_executable(${analytic_executable} ${CMAKE_CURRENT_SOURCE_DIR}/src/fesom_anal
 apply_fesom_compile_flags(${analytic_executable})
 target_link_libraries(${analytic_executable} PUBLIC ${PROJECT_NAME}_Fortran)
 set_target_properties(${analytic_executable} PROPERTIES LINKER_LANGUAGE Fortran)
+if(ENABLE_ATLAS AND ATLAS_RUNTIME_LIBDIR)
+    set_property(TARGET ${analytic_executable} APPEND PROPERTY BUILD_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+    set_property(TARGET ${analytic_executable} APPEND PROPERTY INSTALL_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+endif()
+if(ENABLE_ATLAS)
+    target_compile_definitions(${analytic_executable} PRIVATE ENABLE_ATLAS)
+endif()
+
+# ========================================
+# Atlas stats interpolation test (ENABLE_ATLAS only)
+# ========================================
+set(atlas_stats_test_executable ${PROJECT_NAME}_atlas_stats_test)
+add_executable(${atlas_stats_test_executable}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/test_atlas_stats_interpolation.F90)
+apply_fesom_compile_flags(${atlas_stats_test_executable})
+target_link_libraries(${atlas_stats_test_executable} PUBLIC ${PROJECT_NAME}_Fortran)
+set_target_properties(${atlas_stats_test_executable} PROPERTIES LINKER_LANGUAGE Fortran)
+if(ENABLE_ATLAS AND ATLAS_RUNTIME_LIBDIR)
+    set_property(TARGET ${atlas_stats_test_executable} APPEND PROPERTY
+        BUILD_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+    set_property(TARGET ${atlas_stats_test_executable} APPEND PROPERTY
+        INSTALL_RPATH "${ATLAS_RUNTIME_LIBDIR}")
+endif()
+if(ENABLE_ATLAS)
+    target_compile_definitions(${atlas_stats_test_executable} PRIVATE ENABLE_ATLAS)
+endif()
 
 # OpenACC linker flags for executables (NVHPC)
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "PGI" OR CMAKE_Fortran_COMPILER_ID STREQUAL "NVHPC")

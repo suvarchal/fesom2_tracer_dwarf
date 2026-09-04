@@ -830,7 +830,7 @@ contains
   function tracer_load_mesh_from_files(mesh_path) result(status) &
        bind(C, name="tracer_load_mesh_from_files")
     use g_config, only: MeshPath
-    use oce_mesh_module, only: mesh_setup
+    use atlas_fesom_mesh_module, only: mesh_setup_with_atlas
     character(kind=c_char), dimension(*), intent(in) :: mesh_path
     integer(c_int) :: status
     
@@ -850,8 +850,12 @@ contains
       write(*, '(A,A)') 'Loading mesh from partition files: ', trim(MeshPath)
     end if
     
-    ! Load mesh from partition files using mesh_setup
-    call mesh_setup(global_partit, global_mesh)
+    ! Load mesh using Atlas-backed setup when enabled, otherwise fallback to mesh_setup
+    if (atlas_fesom_enabled()) then
+        call mesh_setup_with_atlas(global_partit, global_mesh)
+    else
+        call mesh_setup(global_partit, global_mesh)
+    end if
     
     ! Mark as initialized
     tracer_initialized = .true.

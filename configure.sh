@@ -9,13 +9,14 @@
 #   --compiler COMPILER   gnu (default), intel, nvidia
 #   --precision PREC      dp (default), sp, hp
 #   --openacc             Enable OpenACC (default: off)
+#   --atlas               Build Atlas support (runtime opt-in: ATLAS_FESOM=1)
 #   --build-type TYPE     Release (default) or Debug
 #   --clean               Remove build directory before configuring
 #   --build               Also run make after configuring
 #   --help                Show this help
 #
-# Build directories are named: build_<compiler>_<precision>
-# e.g. build_gnu_dp, build_intel_sp, build_nvidia_dp
+# Build directories are named: build_<compiler>_<precision>[_atlas]
+# e.g. build_gnu_dp, build_intel_sp, build_nvidia_dp_atlas
 #
 # Examples:
 #   ./configure.sh                                  # GNU double precision
@@ -37,6 +38,7 @@ COMPILER="gnu"
 PRECISION="dp"
 BUILD_TYPE="Release"
 ENABLE_OPENACC="OFF"
+ENABLE_ATLAS="OFF"
 DO_CLEAN=false
 DO_BUILD=false
 
@@ -59,6 +61,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --openacc)
             ENABLE_OPENACC="ON"
+            shift
+            ;;
+        --atlas)
+            ENABLE_ATLAS="ON"
             shift
             ;;
         --clean)
@@ -172,6 +178,9 @@ fi
 
 # Build directory
 BUILD_DIR="build_${COMPILER}_${PRECISION}"
+if [ "$ENABLE_ATLAS" = "ON" ]; then
+    BUILD_DIR="${BUILD_DIR}_atlas"
+fi
 
 # ========================================
 # Print configuration
@@ -184,6 +193,7 @@ echo "  Compiler:    $COMPILER ($FC)"
 echo "  Precision:   $PRECISION"
 echo "  Build type:  $BUILD_TYPE"
 echo "  OpenACC:     $ENABLE_OPENACC"
+echo "  Atlas:       $ENABLE_ATLAS"
 echo "  Build dir:   $BUILD_DIR"
 echo "========================================="
 echo ""
@@ -209,6 +219,7 @@ cmake .. \
     -DUSE_SINGLE_PRECISION="$USE_SINGLE" \
     -DUSE_HALF_PRECISION="$USE_HALF" \
     -DENABLE_OPENACC="$ENABLE_OPENACC" \
+    -DENABLE_ATLAS="$ENABLE_ATLAS" \
     $CMAKE_EXTRA_ARGS
 
 echo ""
@@ -260,6 +271,9 @@ cat > run.sh <<RUNEOF
 #   ./run.sh 1 50 50 10 --save-mesh --save-scalars --periodic
 
 set -e
+if [ "$ENABLE_ATLAS" = "ON" ]; then
+    export ATLAS_FESOM_CACHING=1
+fi
 if [ \$# -lt 1 ]; then
     echo "Usage: ./run.sh NP [program-args...]"
     echo "  NP = number of MPI processes"
